@@ -44,7 +44,7 @@ const Journal = () => {
 
     setLoading(true);
     try {
-      const response = await fetch("/functions/analyseMessage", {
+      const response = await fetch("/functions/v1/analyseMessage", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
