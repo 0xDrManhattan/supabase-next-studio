@@ -1,6 +1,10 @@
 import { NavLink } from "@/components/NavLink";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 
 const Navigation = () => {
+  const { signOut } = useAuth();
+
   return (
     <nav className="border-b border-border bg-card">
       <div className="container mx-auto px-4">
@@ -30,6 +34,9 @@ const Navigation = () => {
             >
               Notes
             </NavLink>
+            <Button variant="ghost" size="sm" onClick={signOut}>
+              Sign Out
+            </Button>
           </div>
         </div>
       </div>
