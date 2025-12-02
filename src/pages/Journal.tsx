@@ -15,9 +15,6 @@ interface DiaryEntry {
   created_at: string;
 }
 
-// TRY THESE URLS IF THE FIRST ONE 404s
-// const FUNCTION_URL = "/functions/v1/analyseMessage";
-// const FUNCTION_URL = "/functions/analyseMessage";
 const FUNCTION_URL = "/api/functions/v1/analyseMessage";
 
 const Journal = () => {
@@ -29,7 +26,6 @@ const Journal = () => {
   const { session } = useAuth();
   const { toast } = useToast();
 
-  // fetch entries on mount
   useEffect(() => {
     fetchEntries();
   }, []);
@@ -37,7 +33,10 @@ const Journal = () => {
   const fetchEntries = async () => {
     setLoadingEntries(true);
 
-    const { data, error } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
+    const { data, error } = await supabase
+      .from("diary")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching entries:", error);
