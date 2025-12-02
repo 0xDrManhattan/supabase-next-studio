@@ -29,10 +29,7 @@ const Journal = () => {
 
   const fetchEntries = async () => {
     setLoadingEntries(true);
-    const { data, error } = await supabase
-      .from("diary")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching entries:", error);
@@ -47,17 +44,14 @@ const Journal = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyseMessage`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ message }),
-        }
-      );
+      const response = await fetch("/functions/analyseMessage", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ message }),
+      });
 
       const result = await response.json();
 
@@ -113,19 +107,13 @@ const Journal = () => {
               {entries.map((entry) => (
                 <div key={entry.id} className="border border-border rounded-md p-4">
                   <div className="flex justify-between items-start mb-2">
-                    <span className="font-medium text-foreground">
-                      {entry.title || "Untitled"}
-                    </span>
+                    <span className="font-medium text-foreground">{entry.title || "Untitled"}</span>
                     <span className="text-sm text-muted-foreground">
                       {new Date(entry.created_at).toLocaleDateString()}
                     </span>
                   </div>
                   <p className="text-foreground">{entry.content}</p>
-                  {entry.mood && (
-                    <span className="text-sm text-muted-foreground mt-2 block">
-                      Mood: {entry.mood}
-                    </span>
-                  )}
+                  {entry.mood && <span className="text-sm text-muted-foreground mt-2 block">Mood: {entry.mood}</span>}
                 </div>
               ))}
             </div>
