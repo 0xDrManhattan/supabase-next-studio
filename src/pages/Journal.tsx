@@ -16,8 +16,8 @@ interface DiaryEntry {
 }
 
 // TRY THESE URLS IF THE FIRST ONE 404s
-const FUNCTION_URL = "/functions/v1/analyseMessage";
-// const FUNCTION_URL = "/functions/analyseMessage";
+// const FUNCTION_URL = "/functions/v1/analyseMessage";
+const FUNCTION_URL = "/functions/analyseMessage";
 // const FUNCTION_URL = "/api/functions/v1/analyseMessage";
 
 const Journal = () => {
