@@ -161,12 +161,18 @@ Extract as much structured data as possible from the message. Use null for missi
     switch (type) {
       case "trade":
         tableName = "trades";
+        // Map buy/sell to long/short (constraint only allows 'long' or 'short')
+        let tradeType = data.trade_type?.toLowerCase();
+        if (tradeType === "buy") tradeType = "long";
+        if (tradeType === "sell") tradeType = "short";
+        if (tradeType !== "long" && tradeType !== "short") tradeType = null;
+        
         const { error: tradeError, data: tradeData } = await supabase
           .from("trades")
           .insert({
             user_id: user.id,
             symbol: data.symbol || "UNKNOWN",
-            trade_type: data.trade_type,
+            trade_type: tradeType,
             entry_price: data.entry_price,
             exit_price: data.exit_price,
             quantity: data.quantity,
