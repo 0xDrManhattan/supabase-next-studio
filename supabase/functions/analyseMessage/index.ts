@@ -22,24 +22,30 @@ serve(async (req) => {
       });
     }
 
-    // 2. Create Supabase client
+    // 2. Create TWO separate Supabase clients
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    // Auth client (anon key) - for verifying user tokens
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // Database client (service role key) - for inserting rows (bypasses RLS)
+    const supabaseDB = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 3. Get user from token
+    // 3. Get user from token using AUTH client
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token);
     
     if (userError || !user) {
-      console.error("Invalid token:", userError?.message);
+      console.error("Invalid token:", userError?.message, "Token prefix:", token.substring(0, 20));
       return new Response(JSON.stringify({ error: "Invalid token" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log("Authenticated user:", user.id);
+    console.log("Authenticated user:", user.id, "Email:", user.email);
 
     // 4. Parse request body
     const { message } = await req.json();
@@ -237,7 +243,7 @@ CRITICAL: If the message contains ANY specific prices (entry price, exit price, 
           takeProfit: data.take_profit 
         });
         
-        const { error: tradeError, data: tradeData } = await supabase
+        const { error: tradeError, data: tradeData } = await supabaseDB
           .from("trades")
           .insert({
             user_id: user.id,
@@ -269,7 +275,7 @@ CRITICAL: If the message contains ANY specific prices (entry price, exit price, 
 
       case "idea": {
         tableName = "ideas";
-        const { error: ideaError, data: ideaData } = await supabase
+        const { error: ideaError, data: ideaData } = await supabaseDB
           .from("ideas")
           .insert({
             user_id: user.id,
@@ -292,7 +298,7 @@ CRITICAL: If the message contains ANY specific prices (entry price, exit price, 
 
       case "market_thought": {
         tableName = "market_thoughts";
-        const { error: thoughtError, data: thoughtData } = await supabase
+        const { error: thoughtError, data: thoughtData } = await supabaseDB
           .from("market_thoughts")
           .insert({
             user_id: user.id,
@@ -315,7 +321,7 @@ CRITICAL: If the message contains ANY specific prices (entry price, exit price, 
       case "diary":
       default: {
         tableName = "diary";
-        const { error: diaryError, data: diaryData } = await supabase
+        const { error: diaryError, data: diaryData } = await supabaseDB
           .from("diary")
           .insert({
             user_id: user.id,
