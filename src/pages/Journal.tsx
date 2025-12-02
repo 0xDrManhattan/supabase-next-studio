@@ -15,7 +15,7 @@ interface DiaryEntry {
   created_at: string;
 }
 
-const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyseMessage`;
+const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL.replace(".co", ".co/functions/v1")}/analyseMessage`;
 
 const Journal = () => {
   const [message, setMessage] = useState("");
@@ -33,10 +33,7 @@ const Journal = () => {
   const fetchEntries = async () => {
     setLoadingEntries(true);
 
-    const { data, error } = await supabase
-      .from("diary")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching entries:", error);
