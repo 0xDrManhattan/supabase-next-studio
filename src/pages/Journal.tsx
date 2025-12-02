@@ -15,7 +15,7 @@ interface DiaryEntry {
   created_at: string;
 }
 
-const FUNCTION_URL = "/api/functions/v1/analyseMessage";
+const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyseMessage`;
 
 const Journal = () => {
   const [message, setMessage] = useState("");

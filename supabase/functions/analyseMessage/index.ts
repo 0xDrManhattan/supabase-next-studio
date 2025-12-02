@@ -234,10 +234,10 @@ Extract as much structured data as possible from the message. Use null for missi
 
     return new Response(
       JSON.stringify({
+        status: "ok",
         type,
         table: tableName,
-        data: savedData,
-        extracted,
+        id: savedData?.id,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
