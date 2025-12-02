@@ -53,19 +53,30 @@ const Journal = () => {
         body: JSON.stringify({ message }),
       });
 
-      const result = await response.json();
+      // Read raw text first, then *try* to parse JSON
+      const raw = await response.text();
+      let result: any = null;
+
+      if (raw) {
+        try {
+          result = JSON.parse(raw);
+        } catch {
+          // Not valid JSON – leave result as null, we'll treat raw as error text
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to analyze message");
+        const errorMsg = (result && result.error) || raw || `Request failed with status ${response.status}`;
+        throw new Error(errorMsg);
       }
 
       toast({
         title: "Entry saved",
-        description: `Saved as ${result.type} in ${result.table}`,
+        description: result ? `Saved as ${result.type} in ${result.table}` : "Entry saved.",
       });
 
       setMessage("");
-      fetchEntries();
+      await fetchEntries();
     } catch (error) {
       console.error("Error:", error);
       toast({
