@@ -27,15 +27,37 @@ const Journal = () => {
     fetchEntries();
   }, []);
 
+  const FUNCTION_URL = "/functions/v1/analyseMessage"; 
+// If 404 persists:
+// const FUNCTION_URL = "/functions/analyseMessage";
+// or: const FUNCTION_URL = "/api/functions/v1/analyseMessage";
+
+const Journal = () => {
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const [loadingEntries, setLoadingEntries] = useState(true);
+  const { session } = useAuth();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchEntries();
+  }, []);
+
   const fetchEntries = async () => {
     setLoadingEntries(true);
-    const { data, error } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
+
+    const { data, error } = await supabase
+      .from("diary")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching entries:", error);
     } else {
       setEntries(data || []);
     }
+
     setLoadingEntries(false);
   };
 
@@ -43,8 +65,9 @@ const Journal = () => {
     if (!message.trim() || !session) return;
 
     setLoading(true);
+
     try {
-      const response = await fetch("/functions/v1/analyseMessage", {
+      const response = await fetch(FUNCTION_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -53,26 +76,30 @@ const Journal = () => {
         body: JSON.stringify({ message }),
       });
 
-      // Read raw text first, then *try* to parse JSON
-      const raw = await response.text();
-      let result: any = null;
+      const text = await response.text();
+      let result = null;
 
-      if (raw) {
+      if (text) {
         try {
-          result = JSON.parse(raw);
+          result = JSON.parse(text);
         } catch {
-          // Not valid JSON – leave result as null, we'll treat raw as error text
+          console.warn("Response was not JSON:", text);
         }
       }
 
       if (!response.ok) {
-        const errorMsg = (result && result.error) || raw || `Request failed with status ${response.status}`;
-        throw new Error(errorMsg);
+        throw new Error(
+          (result && result.error) ||
+            text ||
+            `Request failed with status ${response.status}`
+        );
       }
 
       toast({
         title: "Entry saved",
-        description: result ? `Saved as ${result.type} in ${result.table}` : "Entry saved.",
+        description: result
+          ? `Saved as ${result.type} in ${result.table}`
+          : "Entry saved.",
       });
 
       setMessage("");
@@ -81,7 +108,8 @@ const Journal = () => {
       console.error("Error:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to save entry",
+        description:
+          error instanceof Error ? error.message : "Failed to save entry",
         variant: "destructive",
       });
     } finally {
