@@ -15,8 +15,6 @@ interface DiaryEntry {
   created_at: string;
 }
 
-const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL.replace(".co", ".co/functions/v1")}/analyseMessage`;
-
 const Journal = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,25 +30,38 @@ const Journal = () => {
 
   const fetchEntries = async () => {
     setLoadingEntries(true);
-
-    const { data, error } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
+    const { data, error } = await supabase
+      .from("diary")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching entries:", error);
     } else {
       setEntries(data || []);
     }
-
     setLoadingEntries(false);
   };
 
   const handleSend = async () => {
-    if (!message.trim() || !session) return;
+    if (!message.trim() || !session) {
+      toast({
+        title: "Error",
+        description: "Please enter a message and ensure you're logged in.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setLoading(true);
 
     try {
-      const response = await fetch(FUNCTION_URL, {
+      // Correct endpoint URL
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyseMessage`;
+      
+      console.log("Calling edge function:", functionUrl);
+      
+      const response = await fetch(functionUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -59,33 +70,40 @@ const Journal = () => {
         body: JSON.stringify({ message }),
       });
 
+      // Parse response
       const text = await response.text();
-      let result = null;
-
+      console.log("Response status:", response.status, "Body:", text);
+      
+      let result: { status?: string; type?: string; table?: string; id?: string; error?: string } | null = null;
+      
       if (text) {
         try {
           result = JSON.parse(text);
         } catch {
-          console.warn("Non-JSON response:", text);
+          console.error("Failed to parse response as JSON:", text);
+          throw new Error("Invalid response from server");
         }
       }
 
       if (!response.ok) {
-        throw new Error((result && result.error) || text || `Request failed with ${response.status}`);
+        throw new Error(result?.error || `Request failed with status ${response.status}`);
       }
 
-      toast({
-        title: "Entry saved",
-        description: result ? `Saved as ${result.type} in ${result.table}` : "Entry saved.",
-      });
-
-      setMessage("");
-      await fetchEntries();
+      if (result?.status === "ok") {
+        toast({
+          title: "Entry saved!",
+          description: `Saved as ${result.type} in ${result.table}`,
+        });
+        setMessage("");
+        await fetchEntries();
+      } else {
+        throw new Error(result?.error || "Unknown error");
+      }
     } catch (error) {
-      console.error(error);
+      console.error("Error in handleSend:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Unexpected error",
+        description: error instanceof Error ? error.message : "Failed to save entry",
         variant: "destructive",
       });
     } finally {
@@ -101,7 +119,7 @@ const Journal = () => {
 
         <div className="space-y-4 mb-8">
           <Textarea
-            placeholder="Write about trades, ideas, market thoughts..."
+            placeholder="Write about trades, ideas, market thoughts... (e.g., 'Bought 1 ETH at 2000, TP 2500, SL 1900')"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={4}
@@ -111,12 +129,12 @@ const Journal = () => {
           </Button>
         </div>
 
-        <h2 className="text-lg font-semibold text-foreground">Past Entries</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-4">Past Diary Entries</h2>
 
         {loadingEntries ? (
           <p className="text-muted-foreground">Loading...</p>
         ) : entries.length === 0 ? (
-          <p className="text-muted-foreground">No entries yet.</p>
+          <p className="text-muted-foreground">No diary entries yet.</p>
         ) : (
           <div className="space-y-3">
             {entries.map((entry) => (
@@ -127,10 +145,10 @@ const Journal = () => {
                     {new Date(entry.created_at).toLocaleDateString()}
                   </span>
                 </div>
-
                 <p className="text-foreground">{entry.content}</p>
-
-                {entry.mood && <span className="text-sm text-muted-foreground mt-2 block">Mood: {entry.mood}</span>}
+                {entry.mood && (
+                  <span className="text-sm text-muted-foreground mt-2 block">Mood: {entry.mood}</span>
+                )}
               </div>
             ))}
           </div>

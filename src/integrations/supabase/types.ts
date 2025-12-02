@@ -117,11 +117,22 @@ export type Database = {
           entry_price: number | null
           exit_date: string | null
           exit_price: number | null
+          fees: number | null
           id: string
+          mark_on_enter: string | null
+          mark_on_exit: string | null
           notes: string | null
+          notes_on_enter: string | null
+          notes_on_exit: string | null
+          notional_value: number | null
           pnl: number | null
+          pnl_percent: number | null
+          position_size: number | null
           quantity: number | null
+          stop_loss: number | null
           symbol: string
+          take_profit: number | null
+          trade_number: number
           trade_type: string | null
           updated_at: string
           user_id: string
@@ -132,11 +143,22 @@ export type Database = {
           entry_price?: number | null
           exit_date?: string | null
           exit_price?: number | null
+          fees?: number | null
           id?: string
+          mark_on_enter?: string | null
+          mark_on_exit?: string | null
           notes?: string | null
+          notes_on_enter?: string | null
+          notes_on_exit?: string | null
+          notional_value?: number | null
           pnl?: number | null
+          pnl_percent?: number | null
+          position_size?: number | null
           quantity?: number | null
+          stop_loss?: number | null
           symbol: string
+          take_profit?: number | null
+          trade_number?: number
           trade_type?: string | null
           updated_at?: string
           user_id: string
@@ -147,11 +169,22 @@ export type Database = {
           entry_price?: number | null
           exit_date?: string | null
           exit_price?: number | null
+          fees?: number | null
           id?: string
+          mark_on_enter?: string | null
+          mark_on_exit?: string | null
           notes?: string | null
+          notes_on_enter?: string | null
+          notes_on_exit?: string | null
+          notional_value?: number | null
           pnl?: number | null
+          pnl_percent?: number | null
+          position_size?: number | null
           quantity?: number | null
+          stop_loss?: number | null
           symbol?: string
+          take_profit?: number | null
+          trade_number?: number
           trade_type?: string | null
           updated_at?: string
           user_id?: string
