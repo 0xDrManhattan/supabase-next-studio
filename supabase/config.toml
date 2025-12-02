@@ -1,1 +1,4 @@
 project_id = "jwsxbbtzcbxmchjxxokm"
+
+[functions.analyseMessage]
+verify_jwt = true
