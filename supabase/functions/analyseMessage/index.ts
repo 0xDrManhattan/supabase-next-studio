@@ -34,22 +34,29 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "No message" }), { status: 400, headers: corsHeaders });
     }
 
+    // --- Updated System Prompt ---
     const systemPrompt = `You are a trading journal assistant. Analyze the user message and split it into independent segments. 
     Classify each segment as one of: trade, idea, market_thought, diary.
 
     For EVERY segment, you must generate:
     1. title: A short, human-readable label (3-7 words). 
-       - Ideas: Include ticker if possible.
-       - Market: Short market theme.
-       - Diary: Emotional/behavioral label.
-       - Trade: Trade label (e.g., "ETH Long @ 2000").
+       - Trade: e.g., "ETH long from support", "BTC scalp on CPI dump".
+       - Idea: e.g., "SOL breakout watch".
+       - Market: e.g., "Altseason rotation setup".
+       - Diary: e.g., "Overtrading after loss".
     2. summary: 1-2 sentences for a preview.
-    3. cleaned_content: The user's raw text rewritten to be clear, professional, and well-structured.
+    3. cleaned_content: The user's raw text rewritten to be clear, professional, and well-structured, preserving all factual details.
 
-    TRADE: Contains numbers (entry, exit, sl, tp, size, pnl) OR execution actions.
-    IDEA: Contains a ticker but NO numbers, speculative/exploratory thinking.
-    MARKET_THOUGHT: Macro commentary, TA analysis, indicators (MA, RSI, MACD).
-    DIARY: Emotional reactions, behavioral mistakes, psychology reflections.
+    Symbol Extraction Rules:
+    - Treat something as a trading symbol if it looks like a ticker (2–10 letters, no digits) AND it’s a known crypto ticker (BTC, ETH, SOL, XRP, etc.) OR it appears in trading context (near numbers/keywords like buy, sell, entry, exit, TP, SL).
+    - Recognize $ETH, $btc, #SOL as ETH, BTC, SOL.
+    - If at least one probable symbol exists, pick the most likely trading symbol and set 'symbol' to it (uppercased). If no ticker is present, set 'symbol' to null.
+
+    Classification Rules:
+    - TRADE: Contains numbers tied to a position (entry, exit, SL, TP, size, % pnl) or explicit execution/planned execution (buy, sell, long, short, open, close).
+    - IDEA: Has a ticker but no concrete execution/pricing yet (watchlist, potential setup, “thinking to buy SOL later”).
+    - MARKET_THOUGHT: Macro view, TA, indicators, market structure (MA, RSI, MACD, support/resistance, funding, open interest).
+    - DIARY: Psychological/emotional / daily reflection (“I overtraded after a loss”, “felt FOMO”, etc.).
 
     Return JSON array only. No explanations.`;
 
@@ -79,13 +86,19 @@ serve(async (req) => {
                         data: {
                           type: "object",
                           properties: {
+                            // Required fields for all segments
                             title: { type: "string", description: "Short 3-7 word title" },
-                            summary: { type: "string", description: "1-2 sentence summary" },
+                            summary: { type: "string", description: "1-2 sentence summary for preview" },
                             cleaned_content: {
                               type: "string",
                               description: "Cleaned, professional version of the text",
                             },
-                            symbol: { type: "string" },
+
+                            // Optional type-specific fields
+                            symbol: {
+                              type: "string",
+                              description: "Uppercased trading symbol (e.g., BTC, ETH), or null if none found.",
+                            },
                             direction: { type: "string", enum: ["long", "short"] },
                             entry_price: { type: "number" },
                             exit_price: { type: "number" },
@@ -97,7 +110,7 @@ serve(async (req) => {
                             sentiment: { type: "string", enum: ["bullish", "bearish", "neutral"] },
                             mood: { type: "string" },
                           },
-                          required: ["title", "summary", "cleaned_content"],
+                          required: ["title", "summary", "cleaned_content"], // Enforce the new fields
                         },
                       },
                       required: ["type", "data"],
@@ -126,9 +139,11 @@ serve(async (req) => {
       const { type, data } = segment;
       let result, error, tableName;
 
-      const contentToSave = data.cleaned_content || message;
+      // --- Updated Mapping Logic ---
+      const contentToSave = data.cleaned_content || data.summary || message;
       const titleToSave =
         data.title || (type === "market_thought" ? "Market Thought" : type === "diary" ? "Entry" : "Idea");
+      const symbol = data.symbol ? data.symbol.toUpperCase() : null;
 
       if (type === "trade") {
         tableName = "trades";
@@ -136,7 +151,7 @@ serve(async (req) => {
           .from("trades")
           .insert({
             user_id: user.id,
-            symbol: data.symbol || "UNKNOWN",
+            symbol: symbol, // Use normalized symbol, or null
             trade_type: data.direction,
             entry_price: data.entry_price,
             exit_price: data.exit_price,
@@ -145,7 +160,7 @@ serve(async (req) => {
             take_profit: data.take_profit,
             fees: data.fees,
             pnl: data.pnl,
-            notes: contentToSave,
+            notes: contentToSave, // Use cleaned_content for notes
           })
           .select()
           .single();
@@ -159,7 +174,7 @@ serve(async (req) => {
             user_id: user.id,
             title: titleToSave,
             content: contentToSave,
-            symbol: data.symbol,
+            symbol: symbol, // Use normalized symbol, or null
           })
           .select()
           .single();
@@ -173,13 +188,14 @@ serve(async (req) => {
             user_id: user.id,
             title: titleToSave,
             content: contentToSave,
-            sentiment: data.sentiment,
+            sentiment: data.sentiment || null, // Use sentiment or null
           })
           .select()
           .single();
         result = insert.data;
         error = insert.error;
       } else {
+        // diary
         tableName = "diary";
         const insert = await supabaseDB
           .from("diary")
@@ -187,13 +203,14 @@ serve(async (req) => {
             user_id: user.id,
             title: titleToSave,
             content: contentToSave,
-            mood: data.mood,
+            mood: data.mood || null, // Use mood or null
           })
           .select()
           .single();
         result = insert.data;
         error = insert.error;
       }
+      // --- End of Updated Mapping Logic ---
 
       if (error) {
         console.error(`Insert error for ${tableName}:`, error);
