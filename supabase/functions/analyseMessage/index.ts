@@ -6,76 +6,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type SegmentType = "trade" | "idea" | "market_thought" | "diary";
-
-interface SegmentData {
-  title: string;
-  summary: string;
-  cleaned_content: string;
-  symbol?: string | null;
-  direction?: "long" | "short";
-  entry_price?: number | null;
-  exit_price?: number | null;
-  position_size?: number | null;
-  stop_loss?: number | null;
-  take_profit?: number | null;
-  fees?: number | null;
-  pnl?: number | null;
-  sentiment?: "bullish" | "bearish" | "neutral" | null;
-  mood?: string | null;
-}
-
-interface Segment {
-  type: SegmentType;
-  data: SegmentData;
-}
-
-/**
- * Very small fallback symbol detector, used only when AI leaves symbol null.
- * - Looks for 2–10 letter words near numbers / trade keywords
- * - Normalises $ETH, #btc → ETH / BTC
- * - Avoids common words like "btw"
- */
-function fallbackSymbolFromText(text: string): string | null {
-  const lowered = text.toLowerCase();
-
-  const keywords = [
-    "entry",
-    "exit",
-    "tp",
-    "sl",
-    "stop",
-    "target",
-    "take profit",
-    "stop loss",
-    "buy",
-    "sell",
-    "long",
-    "short",
-    "size",
-  ];
-
-  const nearTradeContext = keywords.some((k) => lowered.includes(k));
-  if (!nearTradeContext) return null;
-
-  const blacklist = new Set(["btw", "and", "the", "for", "but", "or", "not"]);
-
-  // Capture $eth, #sol, eth etc.
-  const re = /(?:^|\s)(\$|#)?([a-zA-Z]{2,10})(?=\s|$|[0-9])/g;
-  let match: RegExpExecArray | null;
-  const candidates: string[] = [];
-
-  while ((match = re.exec(text)) !== null) {
-    const raw = match[2].toLowerCase();
-    if (!blacklist.has(raw)) candidates.push(raw.toUpperCase());
-  }
-
-  if (!candidates.length) return null;
-
-  // If multiple, pick the first – good enough for journal use.
-  return candidates[0];
-}
-
 serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -83,9 +13,11 @@ serve(async (req) => {
   }
 
   try {
+    // ---------- 1. Auth ----------
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing auth header" }), {
+      console.error("Missing auth header");
+      return new Response(JSON.stringify({ error: "Missing auth" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -94,25 +26,12 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-
-    if (!supabaseUrl || !anonKey || !serviceKey || !lovableKey) {
-      console.error("Missing env vars", {
-        hasUrl: !!supabaseUrl,
-        hasAnon: !!anonKey,
-        hasService: !!serviceKey,
-        hasLovable: !!lovableKey,
-      });
-      return new Response(JSON.stringify({ error: "Server not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY")!;
 
     const supabaseAuth = createClient(supabaseUrl, anonKey);
     const supabaseDB = createClient(supabaseUrl, serviceKey);
 
-    const token = authHeader.replace("Bearer ", "").trim();
+    const token = authHeader.replace("Bearer ", "");
     const {
       data: { user },
       error: userError,
@@ -126,60 +45,102 @@ serve(async (req) => {
       });
     }
 
+    // ---------- 2. Parse request ----------
     const body = await req.json().catch(() => null);
     const message: string | undefined = body?.message;
 
     if (!message || typeof message !== "string" || !message.trim()) {
-      return new Response(JSON.stringify({ error: "No message" }), {
+      console.error("Invalid message:", message);
+      return new Response(JSON.stringify({ error: "Message is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // ---------- SYSTEM PROMPT WITH RULES ----------
+    console.log("analyseMessage for user:", user.id);
+    console.log("Raw message:", message.slice(0, 200));
+
+    // ---------- 3. Call Gemini (NO tools, pure JSON) ----------
     const systemPrompt = `
-You are a trading journal assistant. Analyse the user's message and split it into
-independent segments. Each segment must be classified and structured.
+You are a trading journal assistant.
 
-CLASS TYPES
-- "trade": contains numbers tied to a position (entry, exit, SL, TP, size, % PnL)
-           OR explicit execution / plan (buy, sell, long, short, open, close).
-- "idea": ticker present but no concrete execution/pricing yet (watchlist, setup, "thinking to buy SOL later").
-- "market_thought": macro view or TA (MA, RSI, MACD, support/resistance, funding, open interest, overall market move).
-- "diary": psychology / emotions / behaviour ("I overtraded", "felt FOMO", "was scared to enter", etc).
+Your job:
+1) Split the user's text into one or more logical segments.
+2) For EACH segment, classify it and extract structured data.
 
-SYMBOL EXTRACTION (CRITICAL)
-- "symbol" must be either UPPERCASE ticker (e.g. BTC, ETH, SOL) or null.
-- Treat something as potential ticker if:
-    * it is 2–10 letters, AND
-    * appears in trading context (near prices, SL/TP, size, or trade verbs).
-- Normalise $ETH, #btc, eth/usdt -> ETH, BTC, ETH.
-- If there is at least one probable trading ticker, choose the most likely and set "symbol" to it.
-- If there is no real ticker, set symbol = null (do NOT invent one).
-- DO NOT treat filler words (e.g. "btw", "and", "the") as symbols.
+Allowed types:
+- "trade"
+- "idea"
+- "market_thought"
+- "diary"
 
-FIELDS TO RETURN (FOR EACH SEGMENT)
-For EVERY segment you MUST produce:
-  - "type": "trade" | "idea" | "market_thought" | "diary"
-  - "title": short 3–7 word label:
-      * trade: "ETH long from support", "BTC scalp on CPI dump"
-      * idea:  "SOL breakout watch"
-      * market_thought: "Altseason rotation setup"
-      * diary: "Overtrading after loss"
-  - "summary": 1–2 sentence preview of the key point
-  - "cleaned_content": full text, rewritten to be clear and professional but preserving all factual details
+Classification rules:
+- TRADE:
+  - Contains numbers tied to a position (entry, exit, SL, TP, size, % pnl), OR
+  - Explicit execution / plan: buy / sell / long / short / open / close, with a side and a symbol.
+- IDEA:
+  - Has a ticker/symbol but NO concrete execution / prices yet.
+  - Watchlist, setup forming, "thinking about buying SOL", etc.
+- MARKET_THOUGHT:
+  - Macro / market commentary, TA, indicators, funding, open interest, support/resistance.
+- DIARY:
+  - Emotions, behaviour, psychology, meta-comments about trading.
 
-Type-specific:
-  - trade: symbol, direction, entry_price, exit_price, position_size, stop_loss, take_profit, fees, pnl (when available)
-  - idea:  symbol (if any), sentiment (bullish/bearish/neutral when obvious)
-  - market_thought: sentiment (bullish/bearish/neutral when obvious)
-  - diary: mood (free text, e.g. "frustrated", "confident")
+Symbol extraction rules:
+- A symbol is usually 2-10 letters, no spaces, no digits. Example: BTC, ETH, SOL, AVAX, LINK.
+- Normalise $ETH, $btc, #SOL to ETH, BTC, SOL.
+- Only set "symbol" if it clearly refers to the traded asset.
+- If unsure, set "symbol": null (do NOT guess something random).
 
-Return JSON only via the tool call. No natural-language explanation.
-    `.trim();
+For EACH segment you MUST produce:
+- "type": one of "trade" | "idea" | "market_thought" | "diary"
+- "title": 3-7 word human label. Examples:
+    - Trade: "ETH long from support"
+    - Idea: "SOL breakout watch"
+    - Market: "Altseason rotation setup"
+    - Diary: "Overtrading after loss"
+- "summary": 1-2 sentence preview.
+- "cleaned_content": clear, professional rewrite of the user text, preserving all details.
+- Optional fields (only when relevant):
+    - symbol: uppercased ticker or null
+    - direction: "long" | "short"
+    - entry_price, exit_price, position_size, stop_loss, take_profit, fees, pnl (numbers or null)
+    - sentiment: "bullish" | "bearish" | "neutral" (for market_thought)
+    - mood: string (for diary)
 
-    // ---------- CALL LOVABLE / GEMINI ----------
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+RESPONSE FORMAT (CRITICAL):
+- Respond with **ONLY** valid JSON.
+- Do NOT wrap in markdown.
+- Do NOT add explanations.
+- The JSON MUST have this exact shape:
+
+{
+  "segments": [
+    {
+      "type": "trade" | "idea" | "market_thought" | "diary",
+      "title": "string",
+      "summary": "string",
+      "cleaned_content": "string",
+      "symbol": "string or null",
+      "direction": "long" | "short" | null,
+      "entry_price": number or null,
+      "exit_price": number or null,
+      "position_size": number or null,
+      "stop_loss": number or null,
+      "take_profit": number or null,
+      "fees": number or null,
+      "pnl": number or null,
+      "sentiment": "bullish" | "bearish" | "neutral" | null,
+      "mood": "string or null"
+    }
+  ]
+}
+
+If a field is unknown, set it explicitly to null.
+If the user text is one single thing, return an array with 1 element.
+`;
+
+    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableKey}`,
@@ -191,231 +152,167 @@ Return JSON only via the tool call. No natural-language explanation.
           { role: "system", content: systemPrompt },
           { role: "user", content: message },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "classify_segments",
-              description: "Split a trading-related message into segments and structure each segment.",
-              parameters: {
-                type: "object",
-                properties: {
-                  segments: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        type: {
-                          type: "string",
-                          enum: ["trade", "idea", "market_thought", "diary"],
-                        },
-                        data: {
-                          type: "object",
-                          properties: {
-                            title: {
-                              type: "string",
-                              description: "Short 3–7 word title for this segment.",
-                            },
-                            summary: {
-                              type: "string",
-                              description: "1–2 sentence preview of the segment.",
-                            },
-                            cleaned_content: {
-                              type: "string",
-                              description: "Full, cleaned, professional text for this segment.",
-                            },
-                            symbol: {
-                              type: ["string", "null"],
-                              description: "Uppercase trading ticker (BTC, ETH, SOL, etc.) or null if none.",
-                              pattern: "^[A-Za-z]{2,10}$",
-                            },
-                            direction: {
-                              type: "string",
-                              enum: ["long", "short"],
-                            },
-                            entry_price: { type: "number" },
-                            exit_price: { type: "number" },
-                            position_size: { type: "number" },
-                            stop_loss: { type: "number" },
-                            take_profit: { type: "number" },
-                            fees: { type: "number" },
-                            pnl: { type: "number" },
-                            sentiment: {
-                              type: "string",
-                              enum: ["bullish", "bearish", "neutral"],
-                            },
-                            mood: { type: "string" },
-                          },
-                          required: ["title", "summary", "cleaned_content"],
-                        },
-                      },
-                      required: ["type", "data"],
-                    },
-                  },
-                },
-                required: ["segments"],
-              },
-            },
-          },
-        ],
-        tool_choice: {
-          type: "function",
-          function: { name: "classify_segments" },
-        },
       }),
     });
 
-    if (!aiResponse.ok) {
-      const text = await aiResponse.text();
-      console.error("AI error", aiResponse.status, text);
-      return new Response(JSON.stringify({ error: "AI analysis failed" }), {
+    const raw = await aiResp.text();
+    console.log("Raw AI response (first 1000 chars):", raw.slice(0, 1000));
+
+    if (!aiResp.ok) {
+      console.error("AI call failed:", aiResp.status, raw);
+      return new Response(JSON.stringify({ error: "AI call failed", details: raw }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiData = await aiResponse.json();
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+    // ---------- 4. Parse JSON safely ----------
+    let jsonText = raw.trim();
 
-    if (!toolCall?.function?.arguments) {
-      console.error("No tool call in AI response", aiData);
-      return new Response(JSON.stringify({ error: "AI classification failed" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Strip ```json ... ``` wrappers if Gemini adds them
+    if (jsonText.startsWith("```")) {
+      const firstBrace = jsonText.indexOf("{");
+      const lastBrace = jsonText.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonText = jsonText.slice(firstBrace, lastBrace + 1);
+      }
     }
 
-    let parsed;
+    let parsed: any;
     try {
-      parsed = JSON.parse(toolCall.function.arguments);
-    } catch (e) {
-      console.error("Failed to parse tool arguments", e, toolCall.function.arguments);
-      return new Response(JSON.stringify({ error: "Failed to parse AI response" }), {
+      parsed = JSON.parse(jsonText);
+    } catch (err) {
+      console.error("JSON.parse failed:", err, "on text:", jsonText);
+      return new Response(JSON.stringify({ error: "Failed to parse AI JSON", raw: jsonText.slice(0, 500) }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const segments: Segment[] = parsed.segments || [];
-    const results: Array<{ type: SegmentType; table: string; id?: string; error?: string }> = [];
+    if (!parsed || !Array.isArray(parsed.segments)) {
+      console.error("Parsed JSON has no segments:", parsed);
+      return new Response(JSON.stringify({ error: "AI JSON missing 'segments' array", parsed }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // ---------- INSERT PER SEGMENT ----------
-    for (const segment of segments) {
-      const { type, data } = segment;
-      let tableName: string;
-      let insertResult;
-      let insertError;
+    const segments = parsed.segments;
+    const results: any[] = [];
 
-      const cleaned = data.cleaned_content || message;
-      const normalizedSymbol =
-        data.symbol && typeof data.symbol === "string" ? data.symbol.toUpperCase() : fallbackSymbolFromText(cleaned);
+    // ---------- 5. Insert each segment ----------
+    for (const seg of segments) {
+      try {
+        const type = seg.type as string;
+        const data = seg;
 
-      const title =
-        data.title ||
-        (type === "trade"
-          ? "Trade"
-          : type === "idea"
-            ? "Idea"
+        const title =
+          typeof data.title === "string" && data.title.trim()
+            ? data.title.trim()
             : type === "market_thought"
               ? "Market Thought"
-              : "Entry");
+              : type === "diary"
+                ? "Entry"
+                : "Idea";
 
-      if (type === "trade") {
-        tableName = "trades";
-        const { data: row, error } = await supabaseDB
-          .from("trades")
-          .insert({
+        const cleaned =
+          typeof data.cleaned_content === "string" && data.cleaned_content.trim()
+            ? data.cleaned_content.trim()
+            : message;
+
+        const symbol = typeof data.symbol === "string" && data.symbol.trim() ? data.symbol.trim().toUpperCase() : null;
+
+        const direction = data.direction === "long" || data.direction === "short" ? data.direction : null;
+
+        let tableName: string;
+        let insertResult;
+        let insertError;
+
+        if (type === "trade") {
+          tableName = "trades";
+          const insertPayload = {
             user_id: user.id,
-            symbol: normalizedSymbol,
-            trade_type: data.direction ?? null,
+            symbol,
+            trade_type: direction,
             entry_price: data.entry_price ?? null,
             exit_price: data.exit_price ?? null,
             position_size: data.position_size ?? null,
-            quantity: data.position_size ?? null, // backwards compat if you still have quantity
+            quantity: data.position_size ?? null, // keep for compatibility
             stop_loss: data.stop_loss ?? null,
             take_profit: data.take_profit ?? null,
             fees: data.fees ?? null,
             pnl: data.pnl ?? null,
             notes: cleaned,
-          })
-          .select()
-          .single();
-
-        insertResult = row;
-        insertError = error;
-      } else if (type === "idea") {
-        tableName = "ideas";
-        const { data: row, error } = await supabaseDB
-          .from("ideas")
-          .insert({
+          };
+          console.log("Insert trade:", insertPayload);
+          const { data: row, error } = await supabaseDB.from("trades").insert(insertPayload).select().single();
+          insertResult = row;
+          insertError = error;
+        } else if (type === "idea") {
+          tableName = "ideas";
+          const insertPayload = {
             user_id: user.id,
             title,
             content: cleaned,
-            symbol: normalizedSymbol,
-            // you can add "status" / "sentiment" columns later
-          })
-          .select()
-          .single();
-
-        insertResult = row;
-        insertError = error;
-      } else if (type === "market_thought") {
-        tableName = "market_thoughts";
-        const { data: row, error } = await supabaseDB
-          .from("market_thoughts")
-          .insert({
+            symbol,
+          };
+          console.log("Insert idea:", insertPayload);
+          const { data: row, error } = await supabaseDB.from("ideas").insert(insertPayload).select().single();
+          insertResult = row;
+          insertError = error;
+        } else if (type === "market_thought") {
+          tableName = "market_thoughts";
+          const sentiment =
+            data.sentiment === "bullish" || data.sentiment === "bearish" || data.sentiment === "neutral"
+              ? data.sentiment
+              : null;
+          const insertPayload = {
             user_id: user.id,
             title,
             content: cleaned,
-            sentiment: data.sentiment ?? null,
-          })
-          .select()
-          .single();
-
-        insertResult = row;
-        insertError = error;
-      } else {
-        tableName = "diary";
-        const { data: row, error } = await supabaseDB
-          .from("diary")
-          .insert({
+            sentiment,
+          };
+          console.log("Insert market_thought:", insertPayload);
+          const { data: row, error } = await supabaseDB.from("market_thoughts").insert(insertPayload).select().single();
+          insertResult = row;
+          insertError = error;
+        } else {
+          tableName = "diary";
+          const insertPayload = {
             user_id: user.id,
             title,
             content: cleaned,
-            mood: data.mood ?? null,
-          })
-          .select()
-          .single();
+            mood: typeof data.mood === "string" ? data.mood : null,
+          };
+          console.log("Insert diary:", insertPayload);
+          const { data: row, error } = await supabaseDB.from("diary").insert(insertPayload).select().single();
+          insertResult = row;
+          insertError = error;
+        }
 
-        insertResult = row;
-        insertError = error;
-      }
-
-      if (insertError) {
-        console.error(`Insert error for ${type} -> ${tableName}`, insertError);
-        results.push({
-          type,
-          table: tableName,
-          error: insertError.message,
-        });
-      } else {
-        results.push({
-          type,
-          table: tableName,
-          id: insertResult.id,
-        });
+        if (insertError) {
+          console.error(`Insert error for ${type}:`, insertError);
+          results.push({ type, error: insertError.message });
+        } else {
+          results.push({ type, table: insertResult ? insertResult.table : undefined, id: insertResult?.id });
+        }
+      } catch (segErr) {
+        console.error("Error processing segment:", seg, segErr);
+        results.push({ type: "unknown", error: String(segErr) });
       }
     }
 
+    // ---------- 6. Response ----------
     return new Response(JSON.stringify({ status: "ok", results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("Unhandled error in analyseMessage", e);
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("Unhandled error in analyseMessage:", e);
+    return new Response(
+      JSON.stringify({
+        error: e instanceof Error ? e.message : "Unknown error",
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
