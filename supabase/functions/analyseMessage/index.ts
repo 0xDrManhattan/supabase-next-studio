@@ -62,79 +62,57 @@ serve(async (req) => {
 
     // ---------- 3. Call Gemini (NO tools, pure JSON) ----------
     const systemPrompt = `
-You are a trading journal assistant.
+const systemPrompt = `
+Return ONLY valid JSON.
 
-Your job:
-1) Split the user's text into one or more logical segments.
-2) For EACH segment, classify it and extract structured data.
+Your task:
+1. Split the user's text into 1–5 segments.
+2. For each segment, output:
+   - type: one of "trade", "idea", "market_thought", "diary"
+   - title: 3–7 word human-readable title
+   - summary: 1–2 sentence preview
+   - cleaned_content: rewrite of the text, clear & professional
+   - symbol: uppercase crypto ticker or null
+   - direction: "long" | "short" | null
+   - entry_price, exit_price, position_size, stop_loss, take_profit, fees, pnl: numbers or null
+   - sentiment: "bullish" | "bearish" | "neutral" | null
+   - mood: string or null
 
-Allowed types:
-- "trade"
-- "idea"
-- "market_thought"
-- "diary"
+Symbol rules:
+- Recognise tickers like BTC, ETH, SOL, XRP, AVAX, etc.
+- Recognise $eth, $btc, #SOL → ETH, BTC, SOL.
+- If referenced in a trade context (“bought ETH”, “short SOL”), extract it.
+- If none found, return null.
 
 Classification rules:
-- TRADE:
-  - Contains numbers tied to a position (entry, exit, SL, TP, size, % pnl), OR
-  - Explicit execution / plan: buy / sell / long / short / open / close, with a side and a symbol.
-- IDEA:
-  - Has a ticker/symbol but NO concrete execution / prices yet.
-  - Watchlist, setup forming, "thinking about buying SOL", etc.
-- MARKET_THOUGHT:
-  - Macro / market commentary, TA, indicators, funding, open interest, support/resistance.
-- DIARY:
-  - Emotions, behaviour, psychology, meta-comments about trading.
+- TRADE: any numbers connected to a position OR verbs (buy/sell/long/short/open/close).
+- IDEA: ticker present but no execution.
+- MARKET_THOUGHT: TA indicators, market structure, macro commentary.
+- DIARY: psychological, emotional, meta commentary.
 
-Symbol extraction rules:
-- A symbol is usually 2-10 letters, no spaces, no digits. Example: BTC, ETH, SOL, AVAX, LINK.
-- Normalise $ETH, $btc, #SOL to ETH, BTC, SOL.
-- Only set "symbol" if it clearly refers to the traded asset.
-- If unsure, set "symbol": null (do NOT guess something random).
-
-For EACH segment you MUST produce:
-- "type": one of "trade" | "idea" | "market_thought" | "diary"
-- "title": 3-7 word human label. Examples:
-    - Trade: "ETH long from support"
-    - Idea: "SOL breakout watch"
-    - Market: "Altseason rotation setup"
-    - Diary: "Overtrading after loss"
-- "summary": 1-2 sentence preview.
-- "cleaned_content": clear, professional rewrite of the user text, preserving all details.
-- Optional fields (only when relevant):
-    - symbol: uppercased ticker or null
-    - direction: "long" | "short"
-    - entry_price, exit_price, position_size, stop_loss, take_profit, fees, pnl (numbers or null)
-    - sentiment: "bullish" | "bearish" | "neutral" (for market_thought)
-    - mood: string (for diary)
-
-RESPONSE FORMAT (CRITICAL):
-- Respond with **ONLY** valid JSON.
-- Do NOT wrap in markdown.
-- Do NOT add explanations.
-- The JSON MUST have this exact shape:
-
+Output format (strict):
 {
   "segments": [
     {
-      "type": "trade" | "idea" | "market_thought" | "diary",
-      "title": "string",
-      "summary": "string",
-      "cleaned_content": "string",
-      "symbol": "string or null",
-      "direction": "long" | "short" | null,
-      "entry_price": number or null,
-      "exit_price": number or null,
-      "position_size": number or null,
-      "stop_loss": number or null,
-      "take_profit": number or null,
-      "fees": number or null,
-      "pnl": number or null,
-      "sentiment": "bullish" | "bearish" | "neutral" | null,
-      "mood": "string or null"
+      "type": "...",
+      "title": "...",
+      "summary": "...",
+      "cleaned_content": "...",
+      "symbol": "...",
+      "direction": "...",
+      "entry_price": ...,
+      "exit_price": ...,
+      "position_size": ...,
+      "stop_loss": ...,
+      "take_profit": ...,
+      "fees": ...,
+      "pnl": ...,
+      "sentiment": "...",
+      "mood": "..."
     }
   ]
 }
+`;
 
 If a field is unknown, set it explicitly to null.
 If the user text is one single thing, return an array with 1 element.
