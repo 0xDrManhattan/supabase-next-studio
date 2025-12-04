@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns"; // Added for consistent date formatting
 
 interface DiaryEntry {
   id: string;
@@ -20,15 +21,19 @@ const Journal = () => {
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editContent, setEditContent] = useState("");
+  // Using a single object for form state consistency across pages
+  const [editForm, setEditForm] = useState<Partial<DiaryEntry>>({});
+
   const { session } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  useEffect(() => { fetchEntries(); }, []);
+  useEffect(() => {
+    fetchEntries();
+  }, []);
 
   const fetchEntries = async () => {
+    // Note: This fetches diary entries, which are now guaranteed to have titles and cleaned content
     const { data } = await supabase.from("diary").select("*").order("created_at", { ascending: false });
     setEntries(data || []);
   };
@@ -52,7 +57,7 @@ const Journal = () => {
       if (tables.includes("trades")) navigate("/trades");
       else if (tables.includes("ideas")) navigate("/ideas");
       else if (tables.includes("market_thoughts")) navigate("/market-thoughts");
-      else fetchEntries();
+      else fetchEntries(); // Re-fetch only if it was a diary entry
     } catch (error) {
       toast({ title: "Error", description: error instanceof Error ? error.message : "Failed", variant: "destructive" });
     } finally {
@@ -62,14 +67,29 @@ const Journal = () => {
 
   const handleEdit = (entry: DiaryEntry) => {
     setEditingId(entry.id);
-    setEditTitle(entry.title || "");
-    setEditContent(entry.content);
+    setEditForm({
+      title: entry.title || "",
+      content: entry.content,
+    });
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setEditForm({});
   };
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
-    await supabase.from("diary").update({ title: editTitle, content: editContent }).eq("id", editingId);
+    await supabase
+      .from("diary")
+      .update({
+        title: editForm.title,
+        content: editForm.content,
+      })
+      .eq("id", editingId);
+
     setEditingId(null);
+    setEditForm({});
     fetchEntries();
   };
 
@@ -85,36 +105,76 @@ const Journal = () => {
       <main className="container mx-auto px-4 py-8 max-w-2xl">
         <h1 className="text-2xl font-bold mb-6">Journal</h1>
         <div className="space-y-4 mb-8">
-          <Textarea placeholder="Write about trades, ideas, market thoughts, or reflections..." value={message} onChange={(e) => setMessage(e.target.value)} rows={4} />
-          <Button onClick={handleSend} disabled={loading || !message.trim()}>{loading ? "Saving..." : "Send"}</Button>
+          <Textarea
+            placeholder="Write about trades, ideas, market thoughts, or reflections..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={4}
+          />
+          <Button onClick={handleSend} disabled={loading || !message.trim()}>
+            {loading ? "Saving..." : "Send"}
+          </Button>
         </div>
 
         <h2 className="text-lg font-semibold mb-4">Diary Entries</h2>
         {entries.length === 0 ? (
           <p className="text-muted-foreground">No entries yet.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {entries.map((entry) => (
-              <div key={entry.id} className="border rounded-md p-4">
+              <div key={entry.id} className="border rounded-lg bg-card p-4 shadow-sm">
                 {editingId === entry.id ? (
-                  <div className="space-y-2">
-                    <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Title" />
-                    <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={3} />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveEdit}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Title</label>
+                      <Input
+                        value={editForm.title || ""}
+                        onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                        placeholder="Entry title (e.g. 'Emotional check-in')"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Content</label>
+                      <Textarea
+                        value={editForm.content || ""}
+                        onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
+                        rows={6}
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <Button size="sm" onClick={handleSaveEdit}>
+                        Save Changes
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleCancel}>
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <div className="flex justify-between mb-2">
-                      <span className="font-medium">{entry.title || "Untitled"}</span>
-                      <span className="text-sm text-muted-foreground">{new Date(entry.created_at).toLocaleDateString()}</span>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        {/* Now displays the AI-generated title */}
+                        <h3 className="font-semibold text-lg">{entry.title || "Untitled Entry"}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {/* Using date-fns for consistent formatting */}
+                          {format(new Date(entry.created_at), "MMM d, yyyy • h:mm a")}
+                        </p>
+                      </div>
                     </div>
-                    <p>{entry.content}</p>
-                    <div className="flex gap-2 mt-2">
-                      <Button size="sm" variant="outline" onClick={() => handleEdit(entry)}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => handleDelete(entry.id)}>Delete</Button>
+                    <p className="text-sm text-foreground/90 whitespace-pre-wrap mb-4">{entry.content}</p>
+                    <div className="flex gap-2 justify-end">
+                      <Button size="sm" variant="ghost" onClick={() => handleEdit(entry)}>
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(entry.id)}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </>
                 )}
