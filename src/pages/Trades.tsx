@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -56,24 +56,54 @@ const Trades = () => {
   useEffect(() => { fetchTrades(); }, []);
 
   // Computed notional value
-  const getNotional = (trade: Trade) => {
-    if (trade.notional_value) return trade.notional_value;
+  const getNotional = (trade: Partial<Trade>) => {
     if (trade.entry_price && trade.position_size) return trade.entry_price * trade.position_size;
     return null;
   };
 
-  // Computed fees (0.1% of notional)
-  const getComputedFees = (trade: Trade) => {
-    const notional = getNotional(trade);
-    if (notional) return notional * 0.001;
-    return trade.fees;
+  // Auto-computed PnL
+  const computePnl = (t: Partial<Trade>) => {
+    const { entry_price, exit_price, position_size, trade_type } = t;
+
+    if (
+      entry_price == null ||
+      exit_price == null ||
+      position_size == null ||
+      !trade_type
+    ) {
+      return { pnl: null, pnl_percent: null };
+    }
+
+    const notional = entry_price * position_size;
+    const dir = trade_type.toLowerCase();
+
+    let gross: number;
+    if (dir === "long") {
+      gross = (exit_price - entry_price) * position_size;
+    } else if (dir === "short") {
+      gross = (entry_price - exit_price) * position_size;
+    } else {
+      return { pnl: null, pnl_percent: null };
+    }
+
+    const fees = notional * 0.001; // fixed 0.1% for MVP
+    const pnl = gross - fees;
+    const pnl_percent = notional ? (pnl / notional) * 100 : null;
+
+    return { pnl, pnl_percent };
   };
 
-  // Status badge
+  // Get live PnL (from DB or computed)
+  const getLivePnl = (trade: Trade) => {
+    return trade.pnl ?? computePnl(trade).pnl;
+  };
+
+  // Status badge (uses live pnl)
   const getStatus = (trade: Trade): "open" | "win" | "loss" => {
     if (trade.exit_price === null) return "open";
-    if (trade.pnl !== null && trade.pnl > 0) return "win";
-    if (trade.pnl !== null && trade.pnl < 0) return "loss";
+    const pnl = getLivePnl(trade);
+    if (pnl !== null && pnl > 0) return "win";
+    if (pnl !== null && pnl < 0) return "loss";
     return "open";
   };
 
@@ -93,7 +123,7 @@ const Trades = () => {
     if (!direction) return <span className="text-muted-foreground">-</span>;
     const upper = direction.toUpperCase();
     if (upper === "LONG") return <span className="font-medium text-emerald-600">LONG</span>;
-    if (upper === "SHORT") return <span className="font-medium text-red-600">SHORT</span>;
+    if (upper === "SHORT") return <span className="font-medium text-red-500">SHORT</span>;
     return <span>{direction}</span>;
   };
 
@@ -115,6 +145,10 @@ const Trades = () => {
       </TooltipProvider>
     );
   };
+
+  // Format short date
+  const formatShortDate = (d?: string | null) =>
+    d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-";
 
   // Filtered trades
   const filteredTrades = useMemo(() => {
@@ -155,6 +189,10 @@ const Trades = () => {
 
   const handleSave = async () => {
     if (!selectedTrade) return;
+
+    // Auto-compute PnL before saving
+    const { pnl, pnl_percent } = computePnl(editData);
+
     await supabase.from("trades").update({
       symbol: editData.symbol,
       trade_type: editData.trade_type,
@@ -164,15 +202,15 @@ const Trades = () => {
       quantity: editData.position_size,
       stop_loss: editData.stop_loss,
       take_profit: editData.take_profit,
-      pnl: editData.pnl,
-      pnl_percent: editData.pnl_percent,
+      pnl,
+      pnl_percent,
       notes: editData.notes,
       notes_on_enter: editData.notes_on_enter,
       notes_on_exit: editData.notes_on_exit,
       mark_on_enter: editData.mark_on_enter,
       mark_on_exit: editData.mark_on_exit,
-      entry_date: editData.entry_date,
-      exit_date: editData.exit_date,
+      entry_date: editData.entry_date ? new Date(editData.entry_date).toISOString() : null,
+      exit_date: editData.exit_date ? new Date(editData.exit_date).toISOString() : null,
     }).eq("id", selectedTrade.id);
     setIsModalOpen(false);
     fetchTrades();
@@ -194,6 +232,11 @@ const Trades = () => {
     const d = new Date(dateStr);
     return d.toISOString().slice(0, 16);
   };
+
+  // Computed values for modal display
+  const modalPnl = computePnl(editData);
+  const modalNotional = getNotional(editData);
+  const modalFees = modalNotional ? modalNotional * 0.001 : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -275,6 +318,8 @@ const Trades = () => {
                   <TableHead className="w-16">#</TableHead>
                   <TableHead>Symbol</TableHead>
                   <TableHead>Direction</TableHead>
+                  <TableHead>Entry Date</TableHead>
+                  <TableHead>Exit Date</TableHead>
                   <TableHead>Entry</TableHead>
                   <TableHead>Exit</TableHead>
                   <TableHead>Size</TableHead>
@@ -286,28 +331,36 @@ const Trades = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTrades.map((trade) => (
-                  <TableRow key={trade.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openModal(trade)}>
-                    <TableCell className="font-mono text-muted-foreground">{trade.trade_number}</TableCell>
-                    <TableCell className="font-medium">{trade.symbol || "-"}</TableCell>
-                    <TableCell><DirectionText direction={trade.trade_type} /></TableCell>
-                    <TableCell>{formatCurrency(trade.entry_price)}</TableCell>
-                    <TableCell>{formatCurrency(trade.exit_price)}</TableCell>
-                    <TableCell>{trade.position_size ?? "-"}</TableCell>
-                    <TableCell>{formatCurrency(getNotional(trade))}</TableCell>
-                    <TableCell className={trade.pnl && trade.pnl > 0 ? "text-emerald-600" : trade.pnl && trade.pnl < 0 ? "text-red-600" : ""}>
-                      {formatCurrency(trade.pnl)}
-                    </TableCell>
-                    <TableCell className="max-w-[200px]"><NotesPreview notes={trade.notes} /></TableCell>
-                    <TableCell><StatusBadge trade={trade} /></TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex gap-1 justify-end">
-                        <Button size="sm" variant="outline" onClick={() => openModal(trade)}>Edit</Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDelete(trade.id)}>Delete</Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredTrades.map((trade) => {
+                  const livePnl = getLivePnl(trade);
+                  return (
+                    <TableRow key={trade.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openModal(trade)}>
+                      <TableCell className="font-mono text-muted-foreground">{trade.trade_number}</TableCell>
+                      <TableCell className="font-medium">{trade.symbol || "-"}</TableCell>
+                      <TableCell><DirectionText direction={trade.trade_type} /></TableCell>
+                      <TableCell className="text-sm">{formatShortDate(trade.entry_date)}</TableCell>
+                      <TableCell className="text-sm">{formatShortDate(trade.exit_date)}</TableCell>
+                      <TableCell>{formatCurrency(trade.entry_price)}</TableCell>
+                      <TableCell>{formatCurrency(trade.exit_price)}</TableCell>
+                      <TableCell>{trade.position_size ?? "-"}</TableCell>
+                      <TableCell>{formatCurrency(getNotional(trade))}</TableCell>
+                      <TableCell className={
+                        livePnl !== null && livePnl > 0 ? "text-emerald-600" :
+                        livePnl !== null && livePnl < 0 ? "text-red-600" : ""
+                      }>
+                        {formatCurrency(livePnl)}
+                      </TableCell>
+                      <TableCell className="max-w-[200px]"><NotesPreview notes={trade.notes} /></TableCell>
+                      <TableCell><StatusBadge trade={trade} /></TableCell>
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex gap-1 justify-end">
+                          <Button size="sm" variant="outline" onClick={() => openModal(trade)}>Edit</Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDelete(trade.id)}>Delete</Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -321,6 +374,7 @@ const Trades = () => {
                 Trade #{editData.trade_number} - {editData.symbol || "Unknown"}
                 {selectedTrade && <StatusBadge trade={selectedTrade} />}
               </DialogTitle>
+              <DialogDescription>Edit trade details below</DialogDescription>
             </DialogHeader>
 
             <div className="grid grid-cols-2 gap-4 py-4">
@@ -395,11 +449,7 @@ const Trades = () => {
                 <Input
                   readOnly
                   className="bg-muted"
-                  value={formatCurrency(
-                    editData.entry_price && editData.position_size
-                      ? editData.entry_price * editData.position_size
-                      : null
-                  )}
+                  value={formatCurrency(modalNotional)}
                 />
               </div>
 
@@ -442,33 +492,33 @@ const Trades = () => {
                 <Input
                   readOnly
                   className="bg-muted"
-                  value={formatCurrency(
-                    editData.entry_price && editData.position_size
-                      ? editData.entry_price * editData.position_size * 0.001
-                      : null
-                  )}
+                  value={formatCurrency(modalFees)}
                 />
               </div>
 
-              {/* PnL */}
+              {/* PnL (readonly, computed) */}
               <div className="flex flex-col gap-1">
-                <Label className="text-sm">PnL</Label>
+                <Label className="text-sm text-muted-foreground">PnL (auto)</Label>
                 <Input
-                  type="number"
-                  step="any"
-                  value={editData.pnl ?? ""}
-                  onChange={(e) => setEditData({ ...editData, pnl: e.target.value ? Number(e.target.value) : null })}
+                  readOnly
+                  className={`bg-muted ${
+                    modalPnl.pnl !== null && modalPnl.pnl > 0 ? "text-emerald-600" :
+                    modalPnl.pnl !== null && modalPnl.pnl < 0 ? "text-red-600" : ""
+                  }`}
+                  value={formatCurrency(modalPnl.pnl)}
                 />
               </div>
 
-              {/* PnL % */}
+              {/* PnL % (readonly, computed) */}
               <div className="flex flex-col gap-1">
-                <Label className="text-sm">PnL %</Label>
+                <Label className="text-sm text-muted-foreground">PnL % (auto)</Label>
                 <Input
-                  type="number"
-                  step="any"
-                  value={editData.pnl_percent ?? ""}
-                  onChange={(e) => setEditData({ ...editData, pnl_percent: e.target.value ? Number(e.target.value) : null })}
+                  readOnly
+                  className={`bg-muted ${
+                    modalPnl.pnl_percent !== null && modalPnl.pnl_percent > 0 ? "text-emerald-600" :
+                    modalPnl.pnl_percent !== null && modalPnl.pnl_percent < 0 ? "text-red-600" : ""
+                  }`}
+                  value={modalPnl.pnl_percent !== null ? `${modalPnl.pnl_percent.toFixed(2)}%` : "-"}
                 />
               </div>
 
