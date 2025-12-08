@@ -36,6 +36,53 @@ interface Trade {
   created_at: string;
 }
 
+// Helper: get current local datetime in datetime-local format
+function nowLocal(): string {
+  const d = new Date();
+  const offset = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+// Helper: normalize datetime string for datetime-local input
+function toLocalDatetimeString(dateInput: string | null | undefined): string {
+  if (!dateInput) return "";
+
+  // If user only typed date (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    return `${dateInput}T00:00`;
+  }
+
+  // If user typed incomplete datetime (YYYY-MM-DDTHH)
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(dateInput)) {
+    return `${dateInput}:00`;
+  }
+
+  // If it's an ISO string, convert to local format
+  if (dateInput.includes("Z") || dateInput.includes("+")) {
+    const d = new Date(dateInput);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  return dateInput.slice(0, 16);
+}
+
+// Helper: prepare datetime for saving to Supabase
+function prepareDateForSave(dateInput: string | null | undefined): string | null {
+  if (!dateInput || dateInput === "") return null;
+  
+  const normalized = toLocalDatetimeString(dateInput);
+  if (!normalized) return null;
+  
+  try {
+    return new Date(normalized).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 const Trades = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -183,8 +230,26 @@ const Trades = () => {
 
   const openModal = (trade: Trade) => {
     setSelectedTrade(trade);
-    setEditData({ ...trade });
+    // Auto-fill entry_date if null
+    const entryDate = trade.entry_date || nowLocal();
+    setEditData({ ...trade, entry_date: entryDate });
     setIsModalOpen(true);
+  };
+
+  // Handle exit_price change - auto-set exit_date if transitioning from null/empty
+  const handleExitPriceChange = (value: string) => {
+    const newExitPrice = value ? Number(value) : null;
+    const wasEmpty = editData.exit_price == null;
+    const isNowFilled = newExitPrice != null;
+    
+    const updates: Partial<Trade> = { exit_price: newExitPrice };
+    
+    // Auto-assign exit_date when user enters an exit price for the first time
+    if (wasEmpty && isNowFilled && !editData.exit_date) {
+      updates.exit_date = nowLocal();
+    }
+    
+    setEditData({ ...editData, ...updates });
   };
 
   const handleSave = async () => {
@@ -192,6 +257,10 @@ const Trades = () => {
 
     // Auto-compute PnL before saving
     const { pnl, pnl_percent } = computePnl(editData);
+
+    // Prepare dates for saving
+    const entry_date = prepareDateForSave(editData.entry_date);
+    const exit_date = prepareDateForSave(editData.exit_date);
 
     await supabase.from("trades").update({
       symbol: editData.symbol,
@@ -209,8 +278,8 @@ const Trades = () => {
       notes_on_exit: editData.notes_on_exit,
       mark_on_enter: editData.mark_on_enter,
       mark_on_exit: editData.mark_on_exit,
-      entry_date: editData.entry_date ? new Date(editData.entry_date).toISOString() : null,
-      exit_date: editData.exit_date ? new Date(editData.exit_date).toISOString() : null,
+      entry_date,
+      exit_date,
     }).eq("id", selectedTrade.id);
     setIsModalOpen(false);
     fetchTrades();
@@ -225,12 +294,6 @@ const Trades = () => {
   const formatCurrency = (val: number | null) => {
     if (val === null) return "-";
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
-  };
-
-  const formatDatetimeLocal = (dateStr: string | null) => {
-    if (!dateStr) return "";
-    const d = new Date(dateStr);
-    return d.toISOString().slice(0, 16);
   };
 
   // Computed values for modal display
@@ -383,7 +446,7 @@ const Trades = () => {
                 <Label className="text-sm">Entry Date</Label>
                 <Input
                   type="datetime-local"
-                  value={formatDatetimeLocal(editData.entry_date || null)}
+                  value={toLocalDatetimeString(editData.entry_date)}
                   onChange={(e) => setEditData({ ...editData, entry_date: e.target.value || null })}
                 />
               </div>
@@ -393,7 +456,7 @@ const Trades = () => {
                 <Label className="text-sm">Exit Date</Label>
                 <Input
                   type="datetime-local"
-                  value={formatDatetimeLocal(editData.exit_date || null)}
+                  value={toLocalDatetimeString(editData.exit_date)}
                   onChange={(e) => setEditData({ ...editData, exit_date: e.target.value || null })}
                 />
               </div>
@@ -482,7 +545,7 @@ const Trades = () => {
                   type="number"
                   step="any"
                   value={editData.exit_price ?? ""}
-                  onChange={(e) => setEditData({ ...editData, exit_price: e.target.value ? Number(e.target.value) : null })}
+                  onChange={(e) => handleExitPriceChange(e.target.value)}
                 />
               </div>
 
