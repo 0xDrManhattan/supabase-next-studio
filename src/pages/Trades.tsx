@@ -34,6 +34,15 @@ interface Trade {
   entry_date: string | null;
   exit_date: string | null;
   created_at: string;
+  // New fields
+  duration_minutes: number | null;
+  rr: number | null;
+  rsi_at_entry: number | null;
+  volatility_at_entry: number | null;
+  trend_at_entry: string | null;
+  notes_before: string | null;
+  notes_after: string | null;
+  mistake_flags: string[] | null;
 }
 
 // Helper: get current local datetime in datetime-local format
@@ -97,7 +106,7 @@ const Trades = () => {
 
   const fetchTrades = async () => {
     const { data } = await supabase.from("trades").select("*").order("created_at", { ascending: false });
-    setTrades(data || []);
+    setTrades((data as Trade[]) || []);
   };
 
   useEffect(() => { fetchTrades(); }, []);
@@ -232,7 +241,10 @@ const Trades = () => {
     setSelectedTrade(trade);
     // Auto-fill entry_date if null
     const entryDate = trade.entry_date || nowLocal();
-    setEditData({ ...trade, entry_date: entryDate });
+    // Map old fields to new fields for backwards compatibility
+    const notesBefore = trade.notes_before ?? trade.notes_on_enter ?? null;
+    const notesAfter = trade.notes_after ?? trade.notes_on_exit ?? null;
+    setEditData({ ...trade, entry_date: entryDate, notes_before: notesBefore, notes_after: notesAfter });
     setIsModalOpen(true);
   };
 
@@ -262,6 +274,36 @@ const Trades = () => {
     const entry_date = prepareDateForSave(editData.entry_date);
     const exit_date = prepareDateForSave(editData.exit_date);
 
+    // Compute duration_minutes
+    const entryDateObj = entry_date ? new Date(entry_date) : null;
+    const exitDateObj = exit_date ? new Date(exit_date) : null;
+    let duration_minutes: number | null = null;
+    if (entryDateObj && exitDateObj) {
+      duration_minutes = Math.round((exitDateObj.getTime() - entryDateObj.getTime()) / 60000);
+    }
+
+    // Compute RR (reward/risk)
+    let rr: number | null = null;
+    if (
+      editData.entry_price != null &&
+      editData.stop_loss != null &&
+      editData.position_size != null &&
+      editData.trade_type
+    ) {
+      const dir = editData.trade_type.toLowerCase();
+      const riskPerUnit =
+        dir === "long"
+          ? editData.entry_price - editData.stop_loss
+          : editData.stop_loss - editData.entry_price;
+
+      const risk = riskPerUnit * editData.position_size;
+      const pnlVal = pnl ?? computePnl(editData).pnl;
+
+      if (risk > 0 && pnlVal != null) {
+        rr = pnlVal / risk;
+      }
+    }
+
     await supabase.from("trades").update({
       symbol: editData.symbol,
       trade_type: editData.trade_type,
@@ -274,12 +316,23 @@ const Trades = () => {
       pnl,
       pnl_percent,
       notes: editData.notes,
-      notes_on_enter: editData.notes_on_enter,
-      notes_on_exit: editData.notes_on_exit,
+      // Map to new field names but keep old fields for compatibility
+      notes_on_enter: editData.notes_before,
+      notes_on_exit: editData.notes_after,
+      notes_before: editData.notes_before,
+      notes_after: editData.notes_after,
       mark_on_enter: editData.mark_on_enter,
       mark_on_exit: editData.mark_on_exit,
       entry_date,
       exit_date,
+      // New computed fields
+      duration_minutes,
+      rr,
+      // New optional fields
+      rsi_at_entry: editData.rsi_at_entry ?? null,
+      volatility_at_entry: editData.volatility_at_entry ?? null,
+      trend_at_entry: editData.trend_at_entry ?? null,
+      mistake_flags: editData.mistake_flags ?? [],
     }).eq("id", selectedTrade.id);
     setIsModalOpen(false);
     fetchTrades();
@@ -585,12 +638,12 @@ const Trades = () => {
                 />
               </div>
 
-              {/* Notes on Enter */}
+              {/* Notes Before (was notes_on_enter) */}
               <div className="flex flex-col gap-1">
-                <Label className="text-sm">Notes on Enter</Label>
+                <Label className="text-sm">Notes Before</Label>
                 <Input
-                  value={editData.notes_on_enter || ""}
-                  onChange={(e) => setEditData({ ...editData, notes_on_enter: e.target.value })}
+                  value={editData.notes_before || ""}
+                  onChange={(e) => setEditData({ ...editData, notes_before: e.target.value })}
                 />
               </div>
 
@@ -603,12 +656,12 @@ const Trades = () => {
                 />
               </div>
 
-              {/* Notes on Exit */}
+              {/* Notes After (was notes_on_exit) */}
               <div className="flex flex-col gap-1">
-                <Label className="text-sm">Notes on Exit</Label>
+                <Label className="text-sm">Notes After</Label>
                 <Input
-                  value={editData.notes_on_exit || ""}
-                  onChange={(e) => setEditData({ ...editData, notes_on_exit: e.target.value })}
+                  value={editData.notes_after || ""}
+                  onChange={(e) => setEditData({ ...editData, notes_after: e.target.value })}
                 />
               </div>
 
@@ -618,6 +671,33 @@ const Trades = () => {
                 <Input
                   value={editData.mark_on_exit || ""}
                   onChange={(e) => setEditData({ ...editData, mark_on_exit: e.target.value })}
+                />
+              </div>
+
+              {/* Trend at Entry (optional) */}
+              <div className="flex flex-col gap-1">
+                <Label className="text-sm">Trend at Entry</Label>
+                <Select value={editData.trend_at_entry || ""} onValueChange={(v) => setEditData({ ...editData, trend_at_entry: v || null })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select trend" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bullish">Bullish</SelectItem>
+                    <SelectItem value="bearish">Bearish</SelectItem>
+                    <SelectItem value="neutral">Neutral</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* RSI at Entry (optional) */}
+              <div className="flex flex-col gap-1">
+                <Label className="text-sm">RSI at Entry</Label>
+                <Input
+                  type="number"
+                  step="any"
+                  placeholder="0-100"
+                  value={editData.rsi_at_entry ?? ""}
+                  onChange={(e) => setEditData({ ...editData, rsi_at_entry: e.target.value ? Number(e.target.value) : null })}
                 />
               </div>
 

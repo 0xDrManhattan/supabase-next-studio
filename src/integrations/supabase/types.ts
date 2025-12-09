@@ -113,6 +113,7 @@ export type Database = {
       trades: {
         Row: {
           created_at: string
+          duration_minutes: number | null
           entry_date: string | null
           entry_price: number | null
           exit_date: string | null
@@ -121,7 +122,10 @@ export type Database = {
           id: string
           mark_on_enter: string | null
           mark_on_exit: string | null
+          mistake_flags: Json | null
           notes: string | null
+          notes_after: string | null
+          notes_before: string | null
           notes_on_enter: string | null
           notes_on_exit: string | null
           notional_value: number | null
@@ -129,16 +133,21 @@ export type Database = {
           pnl_percent: number | null
           position_size: number | null
           quantity: number | null
+          rr: number | null
+          rsi_at_entry: number | null
           stop_loss: number | null
           symbol: string
           take_profit: number | null
           trade_number: number
           trade_type: string | null
+          trend_at_entry: string | null
           updated_at: string
           user_id: string
+          volatility_at_entry: number | null
         }
         Insert: {
           created_at?: string
+          duration_minutes?: number | null
           entry_date?: string | null
           entry_price?: number | null
           exit_date?: string | null
@@ -147,7 +156,10 @@ export type Database = {
           id?: string
           mark_on_enter?: string | null
           mark_on_exit?: string | null
+          mistake_flags?: Json | null
           notes?: string | null
+          notes_after?: string | null
+          notes_before?: string | null
           notes_on_enter?: string | null
           notes_on_exit?: string | null
           notional_value?: number | null
@@ -155,16 +167,21 @@ export type Database = {
           pnl_percent?: number | null
           position_size?: number | null
           quantity?: number | null
+          rr?: number | null
+          rsi_at_entry?: number | null
           stop_loss?: number | null
           symbol: string
           take_profit?: number | null
           trade_number?: number
           trade_type?: string | null
+          trend_at_entry?: string | null
           updated_at?: string
           user_id: string
+          volatility_at_entry?: number | null
         }
         Update: {
           created_at?: string
+          duration_minutes?: number | null
           entry_date?: string | null
           entry_price?: number | null
           exit_date?: string | null
@@ -173,7 +190,10 @@ export type Database = {
           id?: string
           mark_on_enter?: string | null
           mark_on_exit?: string | null
+          mistake_flags?: Json | null
           notes?: string | null
+          notes_after?: string | null
+          notes_before?: string | null
           notes_on_enter?: string | null
           notes_on_exit?: string | null
           notional_value?: number | null
@@ -181,13 +201,17 @@ export type Database = {
           pnl_percent?: number | null
           position_size?: number | null
           quantity?: number | null
+          rr?: number | null
+          rsi_at_entry?: number | null
           stop_loss?: number | null
           symbol?: string
           take_profit?: number | null
           trade_number?: number
           trade_type?: string | null
+          trend_at_entry?: string | null
           updated_at?: string
           user_id?: string
+          volatility_at_entry?: number | null
         }
         Relationships: []
       }
