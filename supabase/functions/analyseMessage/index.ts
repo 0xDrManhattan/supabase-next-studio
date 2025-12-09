@@ -6,6 +6,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Date helpers
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function safeDateOrNow(input: string | null | undefined): string {
+  if (!input) return nowIso();
+  const d = new Date(input);
+  if (isNaN(d.getTime())) return nowIso();
+  return d.toISOString();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -210,22 +222,45 @@ Return ONLY the JSON object, no extra text or markdown code blocks.`;
 
         if (type === "trade") {
           tableName = "trades";
+
+          const hasExitPrice =
+            typeof seg.exit_price === "number" && !Number.isNaN(seg.exit_price);
+
+          const entry_date = safeDateOrNow(seg.entry_date as string | undefined);
+          const exit_date = hasExitPrice
+            ? safeDateOrNow(seg.exit_date as string | undefined)
+            : null;
+
           const insertPayload = {
             user_id: user.id,
             symbol,
             trade_type: direction,
-            entry_price: typeof seg.entry_price === "number" ? seg.entry_price : null,
-            exit_price: typeof seg.exit_price === "number" ? seg.exit_price : null,
-            position_size: typeof seg.position_size === "number" ? seg.position_size : null,
-            quantity: typeof seg.position_size === "number" ? seg.position_size : null,
-            stop_loss: typeof seg.stop_loss === "number" ? seg.stop_loss : null,
-            take_profit: typeof seg.take_profit === "number" ? seg.take_profit : null,
+            entry_price:
+              typeof seg.entry_price === "number" ? seg.entry_price : null,
+            exit_price: hasExitPrice ? seg.exit_price : null,
+            position_size:
+              typeof seg.position_size === "number" ? seg.position_size : null,
+            quantity:
+              typeof seg.position_size === "number" ? seg.position_size : null,
+            stop_loss:
+              typeof seg.stop_loss === "number" ? seg.stop_loss : null,
+            take_profit:
+              typeof seg.take_profit === "number" ? seg.take_profit : null,
             fees: typeof seg.fees === "number" ? seg.fees : null,
             pnl: typeof seg.pnl === "number" ? seg.pnl : null,
             notes: cleaned,
+            entry_date,
+            exit_date,
           };
+
           console.log("Insert trade payload:", JSON.stringify(insertPayload, null, 2));
-          const { data: row, error } = await supabaseDB.from("trades").insert(insertPayload).select().single();
+
+          const { data: row, error } = await supabaseDB
+            .from("trades")
+            .insert(insertPayload)
+            .select()
+            .single();
+
           insertResult = row;
           insertError = error;
         } else if (type === "idea") {
