@@ -31,6 +31,8 @@ interface Trade {
   notes_on_exit: string | null;
   mark_on_enter: string | null;
   mark_on_exit: string | null;
+  mark_on_enter_score: number | null;
+  mark_on_exit_score: number | null;
   entry_date: string | null;
   exit_date: string | null;
   created_at: string;
@@ -44,6 +46,37 @@ interface Trade {
   notes_after: string | null;
   mistake_flags: string[] | null;
 }
+
+// Mark rating options
+const MARK_OPTIONS = [
+  { label: "very_bad", emoji: "😟", score: 1 },
+  { label: "bad", emoji: "😕", score: 2 },
+  { label: "neutral", emoji: "😐", score: 3 },
+  { label: "good", emoji: "🙂", score: 4 },
+  { label: "excellent", emoji: "😎", score: 5 },
+] as const;
+
+const markScore: Record<string, number> = {
+  very_bad: 1,
+  bad: 2,
+  neutral: 3,
+  good: 4,
+  excellent: 5,
+};
+
+const scoreToLabel: Record<number, string> = {
+  1: "very_bad",
+  2: "bad",
+  3: "neutral",
+  4: "good",
+  5: "excellent",
+};
+
+// Get score from label (for backwards compatibility)
+const getScoreFromLabel = (label: string | null): number | null => {
+  if (!label) return null;
+  return markScore[label] ?? null;
+};
 
 // Helper: get current local datetime in datetime-local format
 function nowLocal(): string {
@@ -244,7 +277,17 @@ const Trades = () => {
     // Map old fields to new fields for backwards compatibility
     const notesBefore = trade.notes_before ?? trade.notes_on_enter ?? null;
     const notesAfter = trade.notes_after ?? trade.notes_on_exit ?? null;
-    setEditData({ ...trade, entry_date: entryDate, notes_before: notesBefore, notes_after: notesAfter });
+    // Compute scores from labels if missing (backwards compatibility)
+    const mark_on_enter_score = trade.mark_on_enter_score ?? getScoreFromLabel(trade.mark_on_enter);
+    const mark_on_exit_score = trade.mark_on_exit_score ?? getScoreFromLabel(trade.mark_on_exit);
+    setEditData({ 
+      ...trade, 
+      entry_date: entryDate, 
+      notes_before: notesBefore, 
+      notes_after: notesAfter,
+      mark_on_enter_score,
+      mark_on_exit_score,
+    });
     setIsModalOpen(true);
   };
 
@@ -323,6 +366,8 @@ const Trades = () => {
       notes_after: editData.notes_after,
       mark_on_enter: editData.mark_on_enter,
       mark_on_exit: editData.mark_on_exit,
+      mark_on_enter_score: editData.mark_on_enter_score ?? null,
+      mark_on_exit_score: editData.mark_on_exit_score ?? null,
       entry_date,
       exit_date,
       // New computed fields
@@ -647,13 +692,46 @@ const Trades = () => {
                 />
               </div>
 
-              {/* Mark on Enter */}
+              {/* Mark on Enter - Emoji Selector */}
               <div className="flex flex-col gap-1">
                 <Label className="text-sm">Mark on Enter</Label>
-                <Input
-                  value={editData.mark_on_enter || ""}
-                  onChange={(e) => setEditData({ ...editData, mark_on_enter: e.target.value })}
-                />
+                <div className="flex gap-1">
+                  {MARK_OPTIONS.map((opt) => (
+                    <TooltipProvider key={opt.label}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant={editData.mark_on_enter === opt.label ? "default" : "ghost"}
+                            size="sm"
+                            className={`text-lg px-2 ${editData.mark_on_enter === opt.label ? "ring-2 ring-primary" : ""}`}
+                            onClick={() => setEditData({ 
+                              ...editData, 
+                              mark_on_enter: opt.label, 
+                              mark_on_enter_score: opt.score 
+                            })}
+                          >
+                            {opt.emoji}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs capitalize">{opt.label.replace("_", " ")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ))}
+                  {editData.mark_on_enter && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => setEditData({ ...editData, mark_on_enter: null, mark_on_enter_score: null })}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {/* Notes After (was notes_on_exit) */}
@@ -665,13 +743,46 @@ const Trades = () => {
                 />
               </div>
 
-              {/* Mark on Exit */}
+              {/* Mark on Exit - Emoji Selector */}
               <div className="flex flex-col gap-1">
                 <Label className="text-sm">Mark on Exit</Label>
-                <Input
-                  value={editData.mark_on_exit || ""}
-                  onChange={(e) => setEditData({ ...editData, mark_on_exit: e.target.value })}
-                />
+                <div className="flex gap-1">
+                  {MARK_OPTIONS.map((opt) => (
+                    <TooltipProvider key={opt.label}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant={editData.mark_on_exit === opt.label ? "default" : "ghost"}
+                            size="sm"
+                            className={`text-lg px-2 ${editData.mark_on_exit === opt.label ? "ring-2 ring-primary" : ""}`}
+                            onClick={() => setEditData({ 
+                              ...editData, 
+                              mark_on_exit: opt.label, 
+                              mark_on_exit_score: opt.score 
+                            })}
+                          >
+                            {opt.emoji}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs capitalize">{opt.label.replace("_", " ")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ))}
+                  {editData.mark_on_exit && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => setEditData({ ...editData, mark_on_exit: null, mark_on_exit_score: null })}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {/* Trend at Entry (optional) */}

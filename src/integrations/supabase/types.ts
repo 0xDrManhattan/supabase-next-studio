@@ -121,7 +121,9 @@ export type Database = {
           fees: number | null
           id: string
           mark_on_enter: string | null
+          mark_on_enter_score: number | null
           mark_on_exit: string | null
+          mark_on_exit_score: number | null
           mistake_flags: Json | null
           notes: string | null
           notes_after: string | null
@@ -155,7 +157,9 @@ export type Database = {
           fees?: number | null
           id?: string
           mark_on_enter?: string | null
+          mark_on_enter_score?: number | null
           mark_on_exit?: string | null
+          mark_on_exit_score?: number | null
           mistake_flags?: Json | null
           notes?: string | null
           notes_after?: string | null
@@ -189,7 +193,9 @@ export type Database = {
           fees?: number | null
           id?: string
           mark_on_enter?: string | null
+          mark_on_enter_score?: number | null
           mark_on_exit?: string | null
+          mark_on_exit_score?: number | null
           mistake_flags?: Json | null
           notes?: string | null
           notes_after?: string | null
