@@ -16,6 +16,7 @@ const Navigation = () => {
             <NavLink to="/ideas" className="text-muted-foreground hover:text-foreground transition-colors" activeClassName="text-foreground font-medium">Ideas</NavLink>
             <NavLink to="/market-thoughts" className="text-muted-foreground hover:text-foreground transition-colors" activeClassName="text-foreground font-medium">Market</NavLink>
             <NavLink to="/notes" className="text-muted-foreground hover:text-foreground transition-colors" activeClassName="text-foreground font-medium">Notes</NavLink>
+            <NavLink to="/analytics" className="text-muted-foreground hover:text-foreground transition-colors" activeClassName="text-foreground font-medium">Analytics</NavLink>
             <Button variant="ghost" size="sm" onClick={signOut}>Sign Out</Button>
           </div>
         </div>

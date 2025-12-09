@@ -11,6 +11,7 @@ import Trades from "./pages/Trades";
 import Ideas from "./pages/Ideas";
 import MarketThoughts from "./pages/MarketThoughts";
 import Notes from "./pages/Notes";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/ideas" element={<ProtectedRoute><Ideas /></ProtectedRoute>} />
             <Route path="/market-thoughts" element={<ProtectedRoute><MarketThoughts /></ProtectedRoute>} />
             <Route path="/notes" element={<ProtectedRoute><Notes /></ProtectedRoute>} />
+            <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
