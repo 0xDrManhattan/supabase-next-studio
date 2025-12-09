@@ -1,6 +1,5 @@
 import Navigation from '@/components/Navigation';
 import { useAnalytics } from '@/hooks/useAnalytics';
-import { useAnalytics } from '@/hooks/useAnalytics';
 import { AnalyticsFilters } from '@/components/analytics/AnalyticsFilters';
 import { KPIRow } from '@/components/analytics/KPIRow';
 import { PerformanceCharts } from '@/components/analytics/PerformanceCharts';
