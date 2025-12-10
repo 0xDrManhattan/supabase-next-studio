@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -107,9 +107,20 @@ export function useAnalytics() {
     return new URLSearchParams(params).toString();
   }, [filters]);
 
+  // Prevent double-fetching with a ref
+  const isFetchingRef = useRef(false);
+  const lastQueryRef = useRef<string>("");
+
   const fetchAnalytics = useCallback(async () => {
     if (!session?.access_token) return;
-
+    
+    // Prevent duplicate fetches
+    const fetchKey = `${session.access_token}-${queryString}`;
+    if (isFetchingRef.current && lastQueryRef.current === fetchKey) return;
+    
+    isFetchingRef.current = true;
+    lastQueryRef.current = fetchKey;
+    
     setLoading(true);
     setError(null);
 
@@ -167,8 +178,9 @@ export function useAnalytics() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
-  }, [session?.access_token, queryString]);
+  }, [session?.access_token, queryString, filters.from, filters.to, filters.status]);
 
   useEffect(() => {
     if (session?.access_token) fetchAnalytics();
