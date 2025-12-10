@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, createContext, useContext, ReactNode, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -18,20 +18,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Helper to update state only if token actually changed
+    const updateAuth = (newSession: Session | null) => {
+      const newToken = newSession?.access_token ?? null;
+      
+      // Only update if token changed (prevents re-renders on token refresh with same token)
+      if (newToken !== lastTokenRef.current) {
+        lastTokenRef.current = newToken;
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+      }
+      setLoading(false);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+      (_event, newSession) => {
+        updateAuth(newSession);
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      updateAuth(initialSession);
     });
 
     return () => subscription.unsubscribe();
@@ -61,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    lastTokenRef.current = null;
     await supabase.auth.signOut();
   };
 
