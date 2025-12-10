@@ -85,11 +85,26 @@ export type AnalyticsTrade = {
 export function useAnalytics() {
   const { session } = useAuth();
 
-  const [filters, setFilters] = useState<AnalyticsFilters>({
-    from: null,
-    to: null,
-    status: "all",
-  });
+  // Load saved filters from localStorage
+  const savedFilters = (() => {
+    try {
+      const raw = localStorage.getItem("analytics_filters");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const [filters, setFilters] = useState<AnalyticsFilters>(
+    savedFilters ?? { from: null, to: null, status: "all" }
+  );
+
+  // Persist filters to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("analytics_filters", JSON.stringify(filters));
+    } catch {}
+  }, [filters]);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [distributions, setDistributions] = useState<DistributionsData | null>(null);

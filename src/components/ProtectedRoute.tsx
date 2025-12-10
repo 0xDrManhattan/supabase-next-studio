@@ -1,22 +1,29 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useState, useEffect } from "react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { user, loading } = useAuth();
+  const { session, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
-      </div>
-    );
+  // Prevent flicker during token refresh
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setIsReady(true);
+    }
+  }, [loading]);
+
+  // While auth is stabilising, keep existing UI mounted
+  if (!isReady) {
+    return null;
   }
 
-  if (!user) {
+  if (!session) {
     return <Navigate to="/auth" replace />;
   }
 
