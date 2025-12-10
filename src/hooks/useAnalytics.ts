@@ -157,7 +157,9 @@ export function useAnalytics() {
       setTrades(
         (tradesData || []).map((t) => ({
           ...t,
-          mistake_flags: Array.isArray(t.mistake_flags) ? t.mistake_flags : null,
+          mistake_flags: Array.isArray(t.mistake_flags) 
+            ? (t.mistake_flags as unknown as string[]) 
+            : null,
         })),
       );
     } catch (err) {
@@ -166,7 +168,7 @@ export function useAnalytics() {
     } finally {
       setLoading(false);
     }
-  }, [session?.access_token, queryString, filters.from, filters.to, filters.status]);
+  }, [session?.access_token, queryString]);
 
   useEffect(() => {
     if (session?.access_token) fetchAnalytics();
